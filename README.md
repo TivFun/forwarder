@@ -71,14 +71,6 @@ To execute the entire fetch-translate-post workflow once, run the main process f
 npx tsx tasks/integral-process.ts
 ```
 
-### Running the Script
-
-To execute the entire fetch-translate-post workflow once, run the main process file:
-
-```bash
-npx tsx tasks/integral-process.ts
-```
-
 ### Scheduling the Task
 
 The `scheduledJob.tsx` script is designed to run in a continuous loop, automatically executing the forwarding task at a set interval (e.g., every 15 minutes). To manage this persistent background process effectively, we use `pm2`, a production-grade process manager for Node.js applications.
