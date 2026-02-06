@@ -197,67 +197,24 @@ async def upload_video(
         )
         cover_for_meta = cover_path
 
-    # Build VideoMeta with copyright parameter if supported
-    # Try to pass copyright directly in __init__, fallback to setattr if needed
-    copyright_value = 2  # 2=转载, 1=原创
+    # Build VideoMeta using bilibili-api-python's native API
+    # Set original=False for reprint (转载), original=True for original (原创)
+    # When original=False, source URL is required
+    meta = video_uploader.VideoMeta(
+        tid=tid,
+        title=title,
+        tags=tags,
+        desc=desc,
+        cover=cover_for_meta,
+        original=False if source_url else True,  # False=转载, True=原创
+        source=source_url if source_url else None,  # Required when original=False
+        no_reprint=False,  # Allow secondary creation
+    )
 
-    try:
-        # Try creating VideoMeta with copyright parameter
-        meta = video_uploader.VideoMeta(
-            tid=tid,
-            title=title,
-            tags=tags,
-            desc=desc,
-            cover=cover_for_meta,
-            no_reprint=False,
-            copyright=copyright_value,  # Try passing copyright directly
-        )
-        print(
-            f"[Bilibili] Created VideoMeta with copyright={copyright_value} in __init__",
-            file=sys.stderr,
-        )
-    except TypeError:
-        # If copyright is not a valid parameter, create without it and set later
-        print(
-            "[Bilibili] copyright not supported in VideoMeta.__init__, will set via attribute",
-            file=sys.stderr,
-        )
-        meta = video_uploader.VideoMeta(
-            tid=tid,
-            title=title,
-            tags=tags,
-            desc=desc,
-            cover=cover_for_meta,
-            no_reprint=False,
-        )
-        # Set copyright and source via attributes
-        try:
-            meta.copyright = copyright_value
-            if source_url:
-                meta.source = source_url
-            print(
-                f"[Bilibili] Set copyright={copyright_value} via attribute",
-                file=sys.stderr,
-            )
-        except Exception as e:
-            print(
-                f"[Bilibili] Warning: Failed to set copyright via attribute: {e}",
-                file=sys.stderr,
-            )
-
-    # Also try setattr as backup
-    if source_url:
-        try:
-            setattr(meta, "copyright", 2)
-            setattr(meta, "source", source_url)
-            print(
-                f"[Bilibili] Set copyright=2 (转载), source={source_url} via setattr",
-                file=sys.stderr,
-            )
-        except Exception as e:
-            print(f"[Bilibili] Warning: setattr failed: {e}", file=sys.stderr)
-
-    print(f"[Bilibili] Using tid={tid} (分区ID: 85=情感)", file=sys.stderr)
+    print(
+        f"[Bilibili] Created VideoMeta: original={meta.original}, tid={tid}, source={meta.source}",
+        file=sys.stderr,
+    )
 
     # Create uploader page
     page = video_uploader.VideoUploaderPage(
@@ -266,159 +223,23 @@ async def upload_video(
         description=desc,
     )
 
-    # Create uploader
+    # Create uploader using bilibili-api-python's native API
     uploader = video_uploader.VideoUploader(
         [page],
         meta,
         credential,
-        line=video_uploader.Lines.QN,  # Use Qiniu (七牛) line
+        line=video_uploader.Lines.QN,
     )
 
-    # Ensure copyright and source are set on the uploader's meta
-    # Some versions of bilibili-api-python may need this set after creation
-    if source_url:
-        if hasattr(uploader, "meta"):
-            # Try direct attribute assignment
-            try:
-                uploader.meta.copyright = 2
-                uploader.meta.source = source_url
-                print(
-                    "[Bilibili] Set copyright and source on uploader.meta",
-                    file=sys.stderr,
-                )
-            except Exception as e:
-                print(
-                    f"[Bilibili] Warning: Failed to set on uploader.meta: {e}",
-                    file=sys.stderr,
-                )
-
-    # Optional: log upload events and intercept PRE_SUBMIT to modify data
+    # Optional: log upload events for debugging
     @uploader.on("__ALL__")
     async def on_event(data):
-        # Intercept PRE_SUBMIT event to modify copyright and tid
-        if isinstance(data, dict) and data.get("name") == "PRE_SUBMIT":
-            submit_data = data.get("data")
-            if submit_data and isinstance(submit_data, dict):
-                # Force set copyright to 2 (转载) and tid to the correct value
-                submit_data["copyright"] = 2
-                submit_data["tid"] = tid
-                if source_url:
-                    submit_data["source"] = source_url
-                print(
-                    f"[Bilibili] INTERCEPTED PRE_SUBMIT: Modified copyright={submit_data['copyright']}, tid={tid}, source={source_url}",
-                    file=sys.stderr,
-                )
-        elif isinstance(data, tuple) and len(data) >= 2:
-            # Handle tuple format: (event_name, event_data)
-            event_name = data[0] if len(data) > 0 else None
-            event_data = data[1] if len(data) > 1 else None
-            if event_name == "PRE_SUBMIT" and isinstance(event_data, dict):
-                event_data["copyright"] = 2
-                event_data["tid"] = tid
-                if source_url:
-                    event_data["source"] = source_url
-                print(
-                    f"[Bilibili] INTERCEPTED PRE_SUBMIT (tuple): Modified copyright={event_data['copyright']}, tid={tid}",
-                    file=sys.stderr,
-                )
-
         print(f"[Bilibili Upload Event] {data}", file=sys.stderr)
-
-    # Hook into the submission process to ensure copyright and source are set
-    # Patch the _submit_video method to modify data before submission
-    if hasattr(uploader, "_submit_video"):
-        original_submit = uploader._submit_video
-
-        async def patched_submit_video(*args, **kwargs):
-            # Modify kwargs or args to ensure copyright and tid are correct
-            if kwargs and "data" in kwargs:
-                kwargs["data"]["copyright"] = 2
-                kwargs["data"]["tid"] = tid
-                if source_url:
-                    kwargs["data"]["source"] = source_url
-            elif args and len(args) > 0 and isinstance(args[0], dict):
-                args[0]["copyright"] = 2
-                args[0]["tid"] = tid
-                if source_url:
-                    args[0]["source"] = source_url
-            result = await original_submit(*args, **kwargs)
-            return result
-
-        uploader._submit_video = patched_submit_video
-        print("[Bilibili] Patched _submit_video method", file=sys.stderr)
-
-    # Also try to modify meta's internal data structure directly
-    # This might not work if as_dict() returns a copy, but worth trying
-    if hasattr(meta, "as_dict") and callable(meta.as_dict):
-        try:
-            meta_dict = meta.as_dict()
-            if isinstance(meta_dict, dict):
-                meta_dict["copyright"] = copyright_value
-                if source_url:
-                    meta_dict["source"] = source_url
-                meta_dict["tid"] = tid  # Ensure tid is set
-                print(
-                    f"[Bilibili] Modified meta.as_dict(): copyright={copyright_value}, tid={tid}",
-                    file=sys.stderr,
-                )
-        except Exception as e:
-            print(
-                f"[Bilibili] Warning: Failed to modify meta.as_dict(): {e}",
-                file=sys.stderr,
-            )
-
-    # Try to patch the _build_submit_data method if it exists
-    if hasattr(uploader, "_build_submit_data"):
-        original_build = uploader._build_submit_data
-
-        def patched_build_submit_data(*args, **kwargs):
-            data = original_build(*args, **kwargs)
-            if isinstance(data, dict):
-                data["copyright"] = 2
-                data["tid"] = tid
-                if source_url:
-                    data["source"] = source_url
-                print(
-                    f"[Bilibili] Patched _build_submit_data: copyright={data['copyright']}, tid={tid}",
-                    file=sys.stderr,
-                )
-            return data
-
-        uploader._build_submit_data = patched_build_submit_data
-        print("[Bilibili] Patched _build_submit_data method", file=sys.stderr)
-
-    # Before starting, try to ensure copyright and tid are set in the uploader's internal state
-    # Some versions may store this in different places
-    try:
-        # Try to access and modify the internal meta object
-        if hasattr(uploader, "meta"):
-            # Force set copyright and source on meta
-            uploader.meta.copyright = copyright_value
-            if source_url:
-                uploader.meta.source = source_url
-            uploader.meta.tid = tid
-            print(
-                f"[Bilibili] Set uploader.meta: copyright={copyright_value}, tid={tid}",
-                file=sys.stderr,
-            )
-
-        # Also try to modify any internal dict that might be used for submission
-        if hasattr(uploader, "_meta_dict"):
-            uploader._meta_dict["copyright"] = copyright_value
-            uploader._meta_dict["tid"] = tid
-            if source_url:
-                uploader._meta_dict["source"] = source_url
-            print(f"[Bilibili] Modified uploader._meta_dict", file=sys.stderr)
-    except Exception as e:
-        print(
-            f"[Bilibili] Warning: Failed to modify uploader internal state: {e}",
-            file=sys.stderr,
-        )
 
     try:
         print(f"[Bilibili] Starting upload: {video_path}", file=sys.stderr)
         print(
-            f"[Bilibili] Final meta state - copyright: {getattr(meta, 'copyright', 'NOT SET')}, tid: {getattr(meta, 'tid', 'NOT SET')}",
+            f"[Bilibili] Meta state - original={meta.original}, tid={meta.tid}, source={meta.source}",
             file=sys.stderr,
         )
         await uploader.start()
