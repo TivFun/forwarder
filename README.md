@@ -57,10 +57,12 @@ The main workflow is orchestrated within `tasks/integral-process.ts` and is comp
 
 ### Installation
 
+This project is now intended to be used with **Bun** instead of npm.
+
 Install the necessary project dependencies by running:
 
 ```bash
-npm install
+bun install
 ```
 
 ### Running the Script
@@ -68,7 +70,7 @@ npm install
 To execute the entire fetch-translate-post workflow once, run the main process file:
 
 ```bash
-npx tsx tasks/integral-process.ts
+bun run integral-once
 ```
 
 ### Scheduling the Task
@@ -86,7 +88,9 @@ Using `pm2` is recommended over a simple cron job for this application because:
 1.  **Install `pm2` globally** (if you have not already):
 
     ```bash
-    npm install pm2 -g
+    bun install pm2 -g
+    # or use npm if you prefer:
+    # npm install pm2 -g
     ```
 
 2.  **Navigate to the project root directory**:
@@ -97,10 +101,10 @@ Using `pm2` is recommended over a simple cron job for this application because:
     ```
 
 3.  **Start the service**:
-    Use `pm2` to start the `index.ts` script. It is recommended to give the process a descriptive name for easier management.
+    Use `pm2` to start the `index.ts` script. With Bun, you can set Bun as the interpreter directly.
 
     ```bash
-    pm2 start index.ts --name forwarder --interpreter npx --interpreter-args "tsx" --max-memory-restart 200M
+    pm2 start index.ts --name forwarder --interpreter bun --max-memory-restart 200M
     ```
 
 4.  **Monitor the process**:

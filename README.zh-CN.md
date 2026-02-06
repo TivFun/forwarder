@@ -57,18 +57,20 @@
 
 ### 安装
 
+本项目现在推荐使用 **Bun** 而不是 npm 来管理依赖和运行脚本。
+
 运行以下命令安装项目所需的依赖：
 
 ```bash
-npm install
+bun install
 ```
 
 ### 运行脚本
 
-若要单次执行完整的“获取-翻译-发布”流程，请运行主流程文件：
+若要单次执行完整的“获取-翻译-发布”流程，可以通过 Bun 调用 `package.json` 中的脚本：
 
 ```bash
-npx tsx tasks/integral-process.ts
+bun run integral-once
 ```
 
 ### 作为持久化服务运行
@@ -86,7 +88,9 @@ npx tsx tasks/integral-process.ts
 1.  **全局安装 `pm2`** (如果尚未安装):
 
     ```bash
-    npm install pm2 -g
+    bun install pm2 -g
+    # 或者如果你更习惯 npm：
+    # npm install pm2 -g
     ```
 
 2.  **进入项目根目录**:
@@ -97,10 +101,10 @@ npx tsx tasks/integral-process.ts
     ```
 
 3.  **启动服务**:
-    使用 `pm2` 启动 `index.ts` 脚本。建议为进程指定一个描述性的名称以便管理。
+    使用 `pm2` 启动 `index.ts` 脚本。使用 Bun 时，可以直接把 Bun 作为解释器。
 
     ```bash
-    pm2 start index.ts --name forwarder --interpreter npx --interpreter-args "tsx" --max-memory-restart 200M
+    pm2 start index.ts --name forwarder --interpreter bun --max-memory-restart 200M
     ```
 
 4.  **监控进程**:

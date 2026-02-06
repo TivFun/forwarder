@@ -4,6 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "tsx index.ts",
+    "integral-once": "tsx tasks/integral-process.ts",
+    "tiktok-download-once": "tsx tasks/tiktok-download.ts",
+    "upload-tiktok-once": "tsx upload-tiktok/index.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
