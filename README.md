@@ -46,7 +46,31 @@ pm2 -v
 
 ### 4) TikTok 嗅探/上传：需要 Python 虚拟环境
 
-现在项目里有一个 venv：`tiktok-download/`。在 `.env` 里通过 `PYTHON_VENV_PATH=tiktok-download` 指向它即可。
+TikTok 嗅探/投稿这部分是通过 **Python** 跑的，所以需要一个 Python 虚拟环境（venv）来安装依赖。
+
+在项目根目录执行：
+
+```bash
+# 1) 创建虚拟环境目录
+python3 -m venv your-venv
+
+# 2) 激活虚拟环境
+source your-venv/bin/activate
+
+# 3) 安装依赖
+python -m pip install TikTokApi playwright bilibili-api-python requests pillow
+
+# 4) 安装 Playwright 浏览器组件
+python -m playwright install
+```
+
+创建完成后，在 `.env` 里写：
+
+```env
+PYTHON_VENV_PATH=your-venv
+```
+
+> 说明：PM2 后台运行时不需要你“激活”虚拟环境；本项目会直接使用 `PYTHON_VENV_PATH` 指向的 `your-venv/bin/python3` 来运行 Python 脚本。
 
 ---
 
