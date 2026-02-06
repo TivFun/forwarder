@@ -8,6 +8,7 @@ import {
   getLastTikTokTime,
 } from "./read-downloaded";
 import { BilibiliUploadMeta } from "./types";
+import { getPythonInterpreter } from "../utils/python-env";
 
 /**
  * Orchestrator for uploading the latest downloaded TikTok video to Bilibili.
@@ -71,13 +72,28 @@ export async function uploadTikTokOnce(): Promise<void> {
   }
 
   // Prepare upload metadata
+  const collectionId = process.env.BILIBILI_COLLECTION_ID
+    ? Number(process.env.BILIBILI_COLLECTION_ID)
+    : undefined;
+  
+  if (collectionId) {
+    console.log(
+      `[upload-tiktok] Using collection ID from BILIBILI_COLLECTION_ID: ${collectionId}`
+    );
+  } else {
+    console.log(
+      "[upload-tiktok] No collection ID set (BILIBILI_COLLECTION_ID not found), video will not be added to any collection"
+    );
+  }
+
   const meta: BilibiliUploadMeta = {
     title: formattedTitle,
     desc: sourceUrl ? `${sourceUrl}` : "",
     tags: ["反田叶月"], 
-    tid: Number("160"), 
+    tid: Number(process.env.BILIBILI_TID || "85"), 
     sourceUrl: sourceUrl || undefined, 
-    copyright: 2, 
+    copyright: 2,
+    act_reserve_create: collectionId, // Collection ID (合集 ID) from environment variable
   };
 
   // Call Python script to upload using bilibili-api-python
@@ -110,7 +126,24 @@ export async function uploadTikTokOnce(): Promise<void> {
       args.push("--source-url", meta.sourceUrl);
     }
 
-    const child = spawn("python3", args, {
+    // Pass original/copyright setting: copyright=1 -> original=true, copyright=2 -> original=false
+    // If copyright is 2 (reprint), we need sourceUrl, so original=false
+    // If copyright is 1 (original), original=true
+    if (meta.copyright === 1) {
+      args.push("--original", "true");
+    } else if (meta.copyright === 2) {
+      args.push("--original", "false");
+    }
+    // If copyright is not set or is other value, let Python auto-detect from sourceUrl
+
+    // Pass collection ID if provided
+    if (meta.act_reserve_create) {
+      args.push("--act-reserve-create", String(meta.act_reserve_create));
+    }
+
+    const pythonInterpreter = getPythonInterpreter();
+    
+    const child = spawn(pythonInterpreter, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });

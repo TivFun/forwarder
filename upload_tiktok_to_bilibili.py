@@ -56,15 +56,94 @@ except ImportError:
 
 
 def extract_cover_from_video(video_path: str) -> str:
-    """Extract first frame from video as cover image using ffmpeg."""
+    """Extract first frame from video as cover image using ffmpeg.
+
+    Ensures proper aspect ratio by maintaining original video proportions
+    and fitting to Bilibili's recommended dimensions (16:9 ratio).
+    """
     # Create a temporary file for the cover image
     cover_path = tempfile.NamedTemporaryFile(
         suffix=".jpg", delete=False, dir=os.path.dirname(video_path)
     ).name
 
     try:
-        # Use ffmpeg to extract first frame
-        # Use -y to overwrite if exists, and ensure proper JPEG format
+        # First, get video dimensions to calculate proper scaling
+        try:
+            probe_result = subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=width,height",
+                    "-of",
+                    "json",
+                    video_path,
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            import json
+
+            probe_data = json.loads(probe_result.stdout.decode("utf-8"))
+            video_width = int(probe_data["streams"][0]["width"])
+            video_height = int(probe_data["streams"][0]["height"])
+            video_aspect = video_width / video_height
+
+            print(
+                f"[Bilibili] Video dimensions: {video_width}x{video_height} (aspect ratio: {video_aspect:.3f})",
+                file=sys.stderr,
+            )
+        except (
+            FileNotFoundError,
+            subprocess.CalledProcessError,
+            KeyError,
+            ValueError,
+        ) as e:
+            # Fallback: use default dimensions if ffprobe fails
+            print(
+                f"[Bilibili] Warning: Could not probe video dimensions ({e}), using default scaling",
+                file=sys.stderr,
+            )
+            video_width = 1080
+            video_height = 1920  # Common TikTok vertical video size
+            video_aspect = video_width / video_height
+
+        # Bilibili recommended aspect ratio is 16:9 (≈1.778)
+        target_aspect = 16 / 9
+        target_width = 1280
+        target_height = 720
+
+        # Calculate scaling to maintain aspect ratio
+        # Always crop to maintain proper aspect ratio (like the reference images)
+        # This ensures the image may be incomplete but has correct proportions
+        if video_aspect > target_aspect:
+            # Video is wider than 16:9, scale by height and crop width (center crop)
+            scale_filter = f"scale=-1:{target_height},crop={target_width}:{target_height}:(iw-ow)/2:0"
+            print(
+                f"[Bilibili] Video is wider than 16:9, will crop sides to maintain aspect ratio",
+                file=sys.stderr,
+            )
+        elif video_aspect < target_aspect:
+            # Video is taller than 16:9, scale by width and crop height (center crop)
+            scale_filter = f"scale={target_width}:-1,crop={target_width}:{target_height}:0:(ih-oh)/2"
+            print(
+                f"[Bilibili] Video is taller than 16:9, will crop top/bottom to maintain aspect ratio",
+                file=sys.stderr,
+            )
+        else:
+            # Video is already 16:9, just scale
+            scale_filter = f"scale={target_width}:{target_height}"
+            print(
+                f"[Bilibili] Video is already 16:9, scaling to {target_width}x{target_height}",
+                file=sys.stderr,
+            )
+
+        # Use ffmpeg to extract first frame with proper aspect ratio
         result = subprocess.run(
             [
                 "ffmpeg",
@@ -75,7 +154,7 @@ def extract_cover_from_video(video_path: str) -> str:
                 "-vframes",
                 "1",
                 "-vf",
-                "scale=1280:720",  # Resize to standard dimensions
+                scale_filter,  # Scale and crop/pad to maintain proper aspect ratio
                 "-q:v",
                 "2",  # High quality
                 "-f",
@@ -148,6 +227,9 @@ async def upload_video(
     source_url: str | None,
     tags: list[str],
     tid: int,
+    original: bool
+    | None = None,  # Optional: True=原创, False=转载. If None, auto-detect from source_url
+    act_reserve_create: int | None = None,  # Optional: Collection ID (合集 ID)
 ):
     """Upload video to Bilibili using bilibili-api-python."""
     sessdata = os.environ.get("SESSDATA")
@@ -163,58 +245,89 @@ async def upload_video(
         buvid3=buvid3,
     )
 
-    # Extract cover image from video
-    cover_path = extract_cover_from_video(video_path)
-    # Ensure absolute path
-    cover_path = os.path.abspath(cover_path)
-    print(f"[Bilibili] Extracted cover image: {cover_path}", file=sys.stderr)
+    # Check if we should use video's first frame as cover (no custom cover extraction)
+    use_video_cover = (
+        os.environ.get("BILIBILI_USE_VIDEO_COVER", "false").lower() == "true"
+    )
 
-    # Verify cover file exists before passing to VideoMeta
-    if not os.path.exists(cover_path):
-        raise RuntimeError(f"Cover image file does not exist: {cover_path}")
-    if os.path.getsize(cover_path) == 0:
-        raise RuntimeError(f"Cover image file is empty: {cover_path}")
+    cover_for_meta = None
+    cover_path = None
 
-    # Try to create Picture object from file bytes to avoid path issues
-    try:
-        from bilibili_api.utils.picture import Picture
-
-        # Read image bytes and create Picture object
-        with open(cover_path, "rb") as f:
-            cover_bytes = f.read()
-
-        # Try from_bytes if available, otherwise fallback to from_file
-        try:
-            picture_obj = Picture().from_bytes(cover_bytes, "jpg")
-            cover_for_meta = picture_obj
-        except (AttributeError, TypeError):
-            # Fallback to from_file with absolute path
-            cover_for_meta = cover_path
-    except Exception as e:
+    if use_video_cover:
+        # Don't extract cover, let Bilibili use video's first frame
         print(
-            f"WARNING: Failed to create Picture object, using path directly: {e}",
+            "[Bilibili] Using video's first frame as cover (BILIBILI_USE_VIDEO_COVER=true)",
             file=sys.stderr,
         )
-        cover_for_meta = cover_path
+    else:
+        # Extract cover image from video with proper 16:9 aspect ratio
+        cover_path = extract_cover_from_video(video_path)
+        # Ensure absolute path
+        cover_path = os.path.abspath(cover_path)
+        print(f"[Bilibili] Extracted cover image: {cover_path}", file=sys.stderr)
+
+        # Verify cover file exists before passing to VideoMeta
+        if not os.path.exists(cover_path):
+            raise RuntimeError(f"Cover image file does not exist: {cover_path}")
+        if os.path.getsize(cover_path) == 0:
+            raise RuntimeError(f"Cover image file is empty: {cover_path}")
+
+        # Try to create Picture object from file bytes to avoid path issues
+        try:
+            from bilibili_api.utils.picture import Picture
+
+            # Read image bytes and create Picture object
+            with open(cover_path, "rb") as f:
+                cover_bytes = f.read()
+
+            # Try from_bytes if available, otherwise fallback to from_file
+            try:
+                picture_obj = Picture().from_bytes(cover_bytes, "jpg")
+                cover_for_meta = picture_obj
+            except (AttributeError, TypeError):
+                # Fallback to from_file with absolute path
+                cover_for_meta = cover_path
+        except Exception as e:
+            print(
+                f"WARNING: Failed to create Picture object, using path directly: {e}",
+                file=sys.stderr,
+            )
+            cover_for_meta = cover_path
 
     # Build VideoMeta using bilibili-api-python's native API
     # Set original=False for reprint (转载), original=True for original (原创)
     # When original=False, source URL is required
+    # If original is not explicitly provided, auto-detect from source_url
+    if original is None:
+        original = False if source_url else True  # Auto-detect: 有 source_url 就是转载
+
     meta = video_uploader.VideoMeta(
         tid=tid,
         title=title,
-        tags=tags,
         desc=desc,
-        cover=cover_for_meta,
-        original=False if source_url else True,  # False=转载, True=原创
+        tags=tags,
+        cover=cover_for_meta,  # None = use video's first frame, or extracted cover with 16:9 aspect ratio
+        original=original,  # Use the provided or auto-detected value
         source=source_url if source_url else None,  # Required when original=False
         no_reprint=False,  # Allow secondary creation
+        act_reserve_create=act_reserve_create,  # Collection ID (合集 ID), if provided
     )
 
     print(
-        f"[Bilibili] Created VideoMeta: original={meta.original}, tid={tid}, source={meta.source}",
+        f"[Bilibili] Created VideoMeta: original={meta.original}, tid={tid}, source={meta.source}, act_reserve_create={getattr(meta, 'act_reserve_create', None)}",
         file=sys.stderr,
     )
+
+    if act_reserve_create:
+        print(
+            f"[Bilibili] ✅ Collection ID set: {act_reserve_create} (视频将添加到合集 ID: {act_reserve_create})",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "[Bilibili] No collection ID provided, video will not be added to any collection",
+            file=sys.stderr,
+        )
 
     # Create uploader page
     page = video_uploader.VideoUploaderPage(
@@ -269,8 +382,8 @@ async def upload_video(
             )
         raise
     finally:
-        # Clean up temporary cover image
-        if os.path.exists(cover_path):
+        # Clean up temporary cover image (if we extracted one)
+        if cover_path and os.path.exists(cover_path):
             try:
                 os.unlink(cover_path)
             except Exception:
@@ -286,6 +399,18 @@ async def main():
     parser.add_argument("--tags", default="转载,TikTok", help="Comma-separated tags")
     parser.add_argument(
         "--tid", type=int, default=160, help="Bilibili category ID (tid)"
+    )
+    parser.add_argument(
+        "--original",
+        type=lambda x: x.lower() in ("true", "1", "yes"),
+        default=None,
+        help="Whether video is original (True) or reprint (False). If not provided, auto-detect from source-url",
+    )
+    parser.add_argument(
+        "--act-reserve-create",
+        type=int,
+        default=None,
+        help="Collection ID (合集 ID) to add video to. If not provided, video will not be added to any collection.",
     )
 
     args = parser.parse_args()
@@ -305,6 +430,8 @@ async def main():
             source_url=args.source_url,
             tags=tags_list,
             tid=args.tid,
+            original=args.original,
+            act_reserve_create=args.act_reserve_create,
         )
         print("SUCCESS", file=sys.stdout)
     except Exception as e:

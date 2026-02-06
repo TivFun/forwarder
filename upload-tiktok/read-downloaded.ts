@@ -1,6 +1,5 @@
 import fs from "fs";
 import path from "path";
-import os from "os";
 import { DownloadedVideo } from "./types";
 
 /**
@@ -61,12 +60,14 @@ export function getLatestDownloadedVideo(): DownloadedVideo | null {
   return all[0] ?? null;
 }
 
+const LOGS_DIR = path.join(__dirname, "..", "logs");
+
 /**
  * Read the last TikTok video URL saved by tiktok-download.ts.
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokUrl(): string | null {
-  const urlFilePath = path.join(os.homedir(), ".forwarder", "last_tiktok_url.txt");
+  const urlFilePath = path.join(LOGS_DIR, "last_tiktok_url.txt");
   try {
     if (fs.existsSync(urlFilePath)) {
       const url = fs.readFileSync(urlFilePath, "utf8").trim();
@@ -86,11 +87,7 @@ export function getLastTikTokUrl(): string | null {
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokTitle(): string | null {
-  const titleFilePath = path.join(
-    os.homedir(),
-    ".forwarder",
-    "last_tiktok_title.txt"
-  );
+  const titleFilePath = path.join(LOGS_DIR, "last_tiktok_title.txt");
   try {
     if (fs.existsSync(titleFilePath)) {
       const title = fs.readFileSync(titleFilePath, "utf8").trim();
@@ -110,11 +107,7 @@ export function getLastTikTokTitle(): string | null {
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokTime(): string | null {
-  const timeFilePath = path.join(
-    os.homedir(),
-    ".forwarder",
-    "last_tiktok_time.txt"
-  );
+  const timeFilePath = path.join(LOGS_DIR, "last_tiktok_time.txt");
   try {
     if (fs.existsSync(timeFilePath)) {
       const time = fs.readFileSync(timeFilePath, "utf8").trim();

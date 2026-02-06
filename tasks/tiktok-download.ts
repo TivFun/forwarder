@@ -2,7 +2,7 @@ import "dotenv/config";
 import { spawn } from "child_process";
 import path from "path";
 import fs from "fs";
-import os from "os";
+import { getPythonInterpreter } from "../utils/python-env";
 
 /**
  * Run the Python-based TikTok helper once, then pass the result to Downie.
@@ -84,8 +84,10 @@ export async function runTikTokDownloadOnce(): Promise<void> {
     let latestUrl: string | null = null;
     let stdoutBuffer = "";
 
+    const pythonInterpreter = getPythonInterpreter();
+    
     const child = spawn(
-      "python3",
+      pythonInterpreter,
       [scriptPath, "--username", username, "--count", String(count)],
       {
         // Capture stdout so we can parse the result line, keep stderr attached.
@@ -146,23 +148,23 @@ export async function runTikTokDownloadOnce(): Promise<void> {
         }
 
         // Save the TikTok URL, title, and time to files so upload-tiktok can read them later
-        const forwarderDir = path.join(os.homedir(), ".forwarder");
-        if (!fs.existsSync(forwarderDir)) {
-          fs.mkdirSync(forwarderDir, { recursive: true });
+        const logsDir = path.join(__dirname, "..", "logs");
+        if (!fs.existsSync(logsDir)) {
+          fs.mkdirSync(logsDir, { recursive: true });
         }
 
-        const urlFilePath = path.join(forwarderDir, "last_tiktok_url.txt");
+        const urlFilePath = path.join(logsDir, "last_tiktok_url.txt");
         fs.writeFileSync(urlFilePath, latestUrl, "utf8");
         console.log(`[TikTok] Saved latest video URL to: ${urlFilePath}`);
 
         if (latestTitle) {
-          const titleFilePath = path.join(forwarderDir, "last_tiktok_title.txt");
+          const titleFilePath = path.join(logsDir, "last_tiktok_title.txt");
           fs.writeFileSync(titleFilePath, latestTitle, "utf8");
           console.log(`[TikTok] Saved latest video title to: ${titleFilePath}`);
         }
 
         if (latestTime) {
-          const timeFilePath = path.join(forwarderDir, "last_tiktok_time.txt");
+          const timeFilePath = path.join(logsDir, "last_tiktok_time.txt");
           fs.writeFileSync(timeFilePath, latestTime, "utf8");
           console.log(`[TikTok] Saved latest video time to: ${timeFilePath}`);
         }

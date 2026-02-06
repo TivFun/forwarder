@@ -1,138 +1,239 @@
-[中文](README.zh-CN.md)
+# forwarder
 
-# Content Forwarding Automation
+这是一个**自动搬运内容**的小工具：
 
-## 1. Purpose
+- **Twitter → Bilibili**：抓取指定账号的推文 →（可翻译）→ 发到 B站
+- **TikTok → 下载 → Bilibili 投稿**：检查指定 TikTok 账号是否更新 → 用 Downie 下载 → 自动投稿到 B站（并可在投稿成功后删除本地视频节省空间）
 
-This project provides an automated workflow to fetch content from a source platform (currently Twitter), translate it, and subsequently post it to a destination platform (currently Bilibili).
+照着做即可。
 
-## 2. Core Function Explanations
+---
 
-The main workflow is orchestrated within `tasks/integral-process.ts` and is composed of several key modules:
+## 你需要准备什么（一次性）
 
-### Data Fetching
+### 1) 安装 Bun（运行本项目用）
 
-- **`tasks/tweets/fetch-tweets.ts`**
-  - This module is responsible for retrieving the raw content data from the source platform's API. It is configured to fetch recent tweets from a specified Twitter account within a defined time window.
+Bun 是一个“运行/安装 JavaScript 依赖”的工具，类似 npm，但更快。我们用它来运行本项目。
 
-### Data Standardisation (Adapter)
+打开终端执行：
 
-- **`tasks/tweets/tweet-standardiser.ts`**
-  - This is a crucial component that acts as an adapter. It takes the raw, platform-specific data from `fetch-tweets.ts` and transforms it into a standardised, internal data model defined in `tasks/types.ts` (`BilibiliPost`). This process isolates the rest of the application from the complexities of the source API's data structure.
+```bash
+curl -fsSL https://bun.sh/install | bash
+```
 
-### Content Translation
+装完后重开终端，确认：
 
-- **`tasks/translation/translate.ts`**
-  - This module takes the text content from the standardised data object and processes it through a translation service (currently Gemini-2.5-Flash-Lite). It returns the translated text, ready for posting.
+```bash
+bun -v
+```
 
-### Content Posting (Poster)
+### 2) 安装 PM2（让脚本在后台常驻）
 
-- **`tasks/post/bilibili-poster.ts`**
-  - This module handles the final step of publishing the content. It takes the standardised, translated data and interacts with the destination platform's API (Bilibili). It manages platform-specific requirements such as image uploading and constructing the correct request body for creating a new post.
+PM2 是“进程守护工具”：让脚本在后台一直跑、崩了自动重启、方便看日志。
 
-## 3. How to Use
+```bash
+bun add -g pm2
+pm2 -v
+```
 
-### Prerequisites
+### 3) TikTok 下载：安装 Downie 4（可选但推荐）
 
-- Node.js and npm installed.
-- API keys and credentials for the source, translation, and destination services.
+假设你已经在用 Downie 4 了。本项目会用系统命令唤起 Downie：
 
-### Configuration
+- `open -a "Downie 4" "<tiktok_url>"`
 
-1.  Populate the `.env` file with your credentials:
+请在 Downie 设置里开启尽可能自动的下载方式（否则可能需要你手动选择清晰度）。
 
-    ```env
-    # Twitter API Credentials from twitterapi.io
-    TWITTERAPI_IO_API_KEY=your_twitterapi_io_key
-    TWITTER_USERNAME=target_twitter_username_without_@
+### 4) TikTok 嗅探/上传：需要 Python 虚拟环境
 
-    # Gemini API Key
-    GOOGLE_API_KEY=your_gemini_api_key
-    GOOGLE_MODEL=gemini-2.5-flash-lite
+现在项目里有一个 venv：`tiktok-download/`。在 `.env` 里通过 `PYTHON_VENV_PATH=tiktok-download` 指向它即可。
 
-    # Bilibili Credentials
-    SESSDATA=your_bilibili_sessdata
-    CSRF=your_bilibili_csrf_token
-    ```
+---
 
-### Installation
+## 安装依赖（第一次运行前）
 
-This project is now intended to be used with **Bun** instead of npm.
-
-Install the necessary project dependencies by running:
+在项目根目录（有 `package.json` 的那个目录）执行：
 
 ```bash
 bun install
 ```
 
-### Running the Script
+---
 
-To execute the entire fetch-translate-post workflow once, run the main process file:
+## 配置 `.env`（最重要）
 
-```bash
-bun run integral-once
+手动在项目根目录里创建 `.env`文件，你需要把下面这些填好（按需启用功能）。
+
+> 注意：改了 `.env` 后，需要 `pm2 restart ... --update-env` 才会生效。
+
+### A. Twitter → Bilibili（推文转发）
+
+```env
+# 开关：true 启用 / false 禁用
+ENABLE_TWITTER_FORWARDER=true
+
+# 抓推文需要
+TWITTERAPI_IO_API_KEY=xxx
+TWITTER_USERNAME=xxx
+
+# 翻译（Gemini）
+GOOGLE_API_KEY=xxx
+GOOGLE_MODEL=gemini-2.5-flash-lite
+
+# 发 B 站动态需要
+SESSDATA=xxx
+CSRF=xxx
 ```
 
-### Scheduling the Task
+可选：推文转发间隔（cron 表达式），默认每 15 分钟：
 
-The `scheduledJob.tsx` script is designed to run in a continuous loop, automatically executing the forwarding task at a set interval (e.g., every 15 minutes). To manage this persistent background process effectively, we use `pm2`, a production-grade process manager for Node.js applications.
+```env
+TWITTER_FORWARDER_INTERVAL=*/15 * * * *
+```
 
-Using `pm2` is recommended over a simple cron job for this application because:
+可选：启动时立刻执行一次：
 
-- **Process Persistence**: It ensures the script remains active continuously and will automatically restart it if it crashes or the server reboots.
-- **Log Management**: It centralises log collection, making it easy to monitor the script's output and diagnose errors.
-- **Background Daemonisation**: It runs the script as a true background service, detaching it from the terminal session.
+```env
+TWITTER_RUN_ON_STARTUP=true
+```
 
-#### How to run with `pm2`:
+### B. TikTok → 下载 → Bilibili 投稿
 
-1.  **Install `pm2` globally** (if you have not already):
+```env
+# 开关：true 启用 / false 禁用
+ENABLE_TIKTOK_AUTO=true
 
-    ```bash
-    bun install pm2 -g
-    # or use npm if you prefer:
-    # npm install pm2 -g
-    ```
+# TikTok 用户名
+TIKTOK_USERNAME=xxx
 
-2.  **Navigate to the project root directory**:
-    Make sure you are in the main directory of the project before running the next command.
+# TikTok msToken（cookie）
+MS_TOKEN=xxx
 
-    ```bash
-    cd /path/to/your/project
-    ```
+# Downie 下载目录（必须是绝对路径）
+TIKTOK_DOWNLOADED_DIR=/Users/你的用户名/.../tiktok-videos
 
-3.  **Start the service**:
-    Use `pm2` to start the `index.ts` script. With Bun, you can set Bun as the interpreter directly.
+# Downie 应用名（默认 Downie 4）
+DOWNIE_APP_NAME=Downie 4
 
-    ```bash
-    pm2 start index.ts --name forwarder --interpreter bun --max-memory-restart 200M
-    ```
+# Python venv（你项目里就是 tiktok-download）
+PYTHON_VENV_PATH=tiktok-download
 
-4.  **Monitor the process**:
-    You can check the status and health of your running application with:
+# B 站投稿凭证（同上，投稿也需要）
+SESSDATA=xxx
+CSRF=xxx
 
-    ```bash
-    pm2 list
-    ```
+# 投稿分区（示例 85）
+BILIBILI_TID=85
 
-    Or view more detailed information:
+# 是否让 B 站用视频第一帧做封面（true=不自己截封面）
+BILIBILI_USE_VIDEO_COVER=true
 
-    ```bash
-    pm2 show content-forwarding-automator
-    ```
+# 合集 ID（可选）
+BILIBILI_COLLECTION_ID=1234567
+```
 
-5.  **View logs**:
-    To inspect the real-time output and any console errors from the script:
+可选：TikTok 执行间隔（默认每 30 分钟）
 
-    ```bash
-    pm2 logs content-forwarding-automator
-    ```
+```env
+TIKTOK_AUTO_INTERVAL=*/30 * * * *
+```
 
-6.  **Stopping and Deleting**:
-    To stop the process:
-    ```bash
-    pm2 stop content-forwarding-automator
-    ```
-    To stop and remove it from the `pm2` list:
-    ```bash
-    pm2 delete content-forwarding-automator
-    ```
+可选：启动时立刻执行一次
+
+```env
+TIKTOK_RUN_ON_STARTUP=true
+```
+
+---
+
+## 启动（推荐：用 PM2 常驻后台）
+
+### 1) 创建日志目录
+
+```bash
+mkdir -p logs
+```
+
+### 2) 启动 TikTok 转发
+
+```bash
+pm2 start ecosystem.config.js --only tiktok-forwarder
+```
+
+看日志：
+
+```bash
+pm2 logs tiktok-forwarder --lines 100
+```
+
+### 3) 启动 Twitter 转发
+
+```bash
+pm2 start ecosystem.config.js --only twitter-forwarder
+```
+
+看日志：
+
+```bash
+pm2 logs twitter-forwarder --lines 100
+```
+
+### 4) 修改 `.env` 后如何生效
+
+```bash
+pm2 restart tiktok-forwarder --update-env
+pm2 restart twitter-forwarder --update-env
+```
+
+---
+
+## 常用排查
+
+### 看进程是否在跑
+
+```bash
+pm2 list
+```
+
+### 看日志文件在哪里
+
+- TikTok：
+  - `logs/tiktok-forwarder-out.log`
+  - `logs/tiktok-forwarder-error.log`
+- Twitter：
+  - `logs/twitter-forwarder-out.log`
+  - `logs/twitter-forwarder-error.log`
+
+### 停止/删除
+
+```bash
+pm2 stop tiktok-forwarder
+pm2 stop twitter-forwarder
+
+pm2 delete tiktok-forwarder
+pm2 delete twitter-forwarder
+```
+
+---
+
+## “我只想手动跑一次”怎么做（不常驻）
+
+```bash
+# 推文转发跑一次
+bun run integral-once
+
+# TikTok 下载跑一次（会唤起 Downie）
+bun run tiktok-download-once
+
+# TikTok 投稿跑一次（从下载目录取最新视频投稿）
+bun run upload-tiktok-once
+
+# TikTok 全流程跑一次（嗅探→下载→投稿→成功后删本地视频）
+bun run tiktok-auto-once
+```
+
+---
+
+## 免责声明
+
+本项目涉及对第三方平台的自动化操作。请遵守平台规则与当地法律法规，并自行承担使用风险。
