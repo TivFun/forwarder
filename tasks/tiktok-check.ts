@@ -80,7 +80,13 @@ export async function checkTikTokVideoInfo(): Promise<{
 
         const urlMarker = "[RESULT] latest_video_url=";
         if (line.startsWith(urlMarker)) {
-          latestUrl = line.slice(urlMarker.length).trim();
+          const urlValue = line.slice(urlMarker.length).trim();
+          // Handle Python's None output - treat as null
+          if (urlValue === "None" || urlValue.startsWith("None ")) {
+            latestUrl = null;
+          } else {
+            latestUrl = urlValue;
+          }
         }
 
         const titleMarker = "[RESULT] latest_video_title=";

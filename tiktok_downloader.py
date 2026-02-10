@@ -89,15 +89,16 @@ async def get_latest_video_info(
 
             candidates.append((create_ts, is_top, video))
 
-        # Prefer the newest non-pinned video by timestamp.
+        # Only consider non-pinned videos (pinned videos are old content, never new)
         non_pinned = [item for item in candidates if not item[1]]
-        search_list = non_pinned or candidates
 
-        if not search_list:
+        if not non_pinned:
+            # No non-pinned videos found - return None
+            # The TypeScript code will handle comparison with last processed video
             return None
 
-        # max by create_ts
-        create_ts, is_top, latest_video = max(search_list, key=lambda t: t[0])
+        # max by create_ts - get the newest non-pinned video
+        create_ts, is_top, latest_video = max(non_pinned, key=lambda t: t[0])
 
         # Prepare human-readable creation time
         try:

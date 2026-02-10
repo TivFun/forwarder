@@ -26,38 +26,86 @@ import path from "path";
  */
 
 const LOGS_DIR = path.join(__dirname, "..", "logs");
-const LAST_PROCESSED_URL_FILE = path.join(LOGS_DIR, "last_processed_tiktok_url.txt");
+const LAST_PROCESSED_VIDEO_FILE = path.join(LOGS_DIR, "last_processed_tiktok_video.json");
+
+interface ProcessedVideoInfo {
+  url: string;
+  title: string | null;
+  time: string | null;
+}
 
 /**
- * Get the last processed TikTok video URL to avoid duplicate processing
+ * Get the last processed TikTok video info to avoid duplicate processing
  */
-function getLastProcessedUrl(): string | null {
+function getLastProcessedVideo(): ProcessedVideoInfo | null {
   try {
-    if (fs.existsSync(LAST_PROCESSED_URL_FILE)) {
-      const url = fs.readFileSync(LAST_PROCESSED_URL_FILE, "utf8").trim();
-      return url || null;
+    if (fs.existsSync(LAST_PROCESSED_VIDEO_FILE)) {
+      const content = fs.readFileSync(LAST_PROCESSED_VIDEO_FILE, "utf8").trim();
+      if (content) {
+        const videoInfo = JSON.parse(content) as ProcessedVideoInfo;
+        // Validate the structure
+        if (videoInfo.url && videoInfo.url.startsWith("http")) {
+          return videoInfo;
+        }
+      }
     }
   } catch (err) {
     console.warn(
-      `[TikTok-Auto] Failed to read last processed URL: ${err}`
+      `[TikTok-Auto] Failed to read last processed video info: ${err}`
     );
   }
   return null;
 }
 
 /**
- * Save the processed TikTok video URL
+ * Save the processed TikTok video info
  */
-function saveLastProcessedUrl(url: string): void {
+function saveLastProcessedVideo(info: ProcessedVideoInfo): void {
   try {
     if (!fs.existsSync(LOGS_DIR)) {
       fs.mkdirSync(LOGS_DIR, { recursive: true });
     }
-    fs.writeFileSync(LAST_PROCESSED_URL_FILE, url, "utf8");
-    console.log(`[TikTok-Auto] Saved processed URL: ${url}`);
+    fs.writeFileSync(LAST_PROCESSED_VIDEO_FILE, JSON.stringify(info, null, 2), "utf8");
+    console.log(`[TikTok-Auto] Saved processed video info: ${info.url}`);
   } catch (err) {
-    console.error(`[TikTok-Auto] Failed to save processed URL: ${err}`);
+    console.error(`[TikTok-Auto] Failed to save processed video info: ${err}`);
   }
+}
+
+/**
+ * Check if the current video is the same as the last processed one
+ * Returns true if it's a duplicate (should skip), false if it's new
+ */
+function isDuplicateVideo(
+  current: { url: string; title: string | null; time: string | null },
+  last: ProcessedVideoInfo | null
+): boolean {
+  if (!last) {
+    return false; // No previous video, so this is new
+  }
+
+  // Check 1: All three match (URL, title, time)
+  if (
+    current.url === last.url &&
+    current.title === last.title &&
+    current.time === last.time
+  ) {
+    return true;
+  }
+
+  // Check 2: Title and time both match (even if URL differs, it's likely the same video)
+  if (
+    current.title &&
+    last.title &&
+    current.time &&
+    last.time &&
+    current.title === last.title &&
+    current.time === last.time
+  ) {
+    return true;
+  }
+
+  return false; // Different video
 }
 
 /**
@@ -203,44 +251,45 @@ export async function runTikTokAutoOnce(): Promise<void> {
     throw err;
   }
 
-  const latestUrl = videoInfo.url;
-  if (!latestUrl) {
-    console.warn(
-      "[TikTok-Auto] No TikTok URL found. Skipping download/upload."
+  // Step 2: Check if we got a valid video
+  // If Python returned None (no new non-pinned videos found), skip directly
+  if (!videoInfo.url || 
+      videoInfo.url === "None" || 
+      videoInfo.url.startsWith("None ") ||
+      !videoInfo.url.startsWith("http")) {
+    console.log(
+      `[TikTok-Auto] No new non-pinned videos found. Skipping download/upload.`
     );
     return;
   }
 
-  // Step 2: Check if this is a new video (duplicate check)
-  const lastProcessedUrl = getLastProcessedUrl();
-  if (lastProcessedUrl === latestUrl) {
+  // Step 3: Check if this is a duplicate video (enhanced comparison with URL, title, time)
+  const lastProcessed = getLastProcessedVideo();
+  if (isDuplicateVideo({ url: videoInfo.url, title: videoInfo.title, time: videoInfo.time }, lastProcessed)) {
     console.log(
-      `[TikTok-Auto] Video ${latestUrl} was already processed. Skipping download/upload.`
+      `[TikTok-Auto] Video already processed. Skipping download/upload.`
     );
+    console.log(
+      `[TikTok-Auto] Current - URL: ${videoInfo.url}, Title: ${videoInfo.title || "N/A"}, Time: ${videoInfo.time || "N/A"}`
+    );
+    if (lastProcessed) {
+      console.log(
+        `[TikTok-Auto] Previous - URL: ${lastProcessed.url}, Title: ${lastProcessed.title || "N/A"}, Time: ${lastProcessed.time || "N/A"}`
+      );
+    }
     return;
   }
 
   console.log(
-    `[TikTok-Auto] ✅ New video detected: ${latestUrl} (previous: ${lastProcessedUrl || "none"})`
+    `[TikTok-Auto] ✅ New video detected: ${videoInfo.url}`
   );
   console.log(
     `[TikTok-Auto] Video info - Title: ${videoInfo.title || "N/A"}, Time: ${videoInfo.time || "N/A"}`
   );
-
-  // Step 3: Save video info for download script to use
-  if (!fs.existsSync(LOGS_DIR)) {
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-  }
-
-  // Save the video info so download script can use it
-  if (latestUrl) {
-    fs.writeFileSync(path.join(LOGS_DIR, "last_tiktok_url.txt"), latestUrl, "utf8");
-  }
-  if (videoInfo.title) {
-    fs.writeFileSync(path.join(LOGS_DIR, "last_tiktok_title.txt"), videoInfo.title, "utf8");
-  }
-  if (videoInfo.time) {
-    fs.writeFileSync(path.join(LOGS_DIR, "last_tiktok_time.txt"), videoInfo.time, "utf8");
+  if (lastProcessed) {
+    console.log(
+      `[TikTok-Auto] Previous video - URL: ${lastProcessed.url}, Title: ${lastProcessed.title || "N/A"}, Time: ${lastProcessed.time || "N/A"}`
+    );
   }
 
   // Step 4: Now trigger download (only for new videos)
@@ -282,11 +331,17 @@ export async function runTikTokAutoOnce(): Promise<void> {
       uploadedVideoPath = videoToUpload.filePath;
     }
 
-    await uploadTikTokOnce();
+    // Upload and get the actual video info that was used
+    const uploadedVideoInfo = await uploadTikTokOnce(videoInfo);
     console.log("[TikTok-Auto] ✅ Upload completed successfully!");
     
-    // Mark this URL as processed
-    saveLastProcessedUrl(latestUrl);
+    // Mark this video as processed (save all info: URL, title, time) - only after successful upload
+    // Use the info returned from upload function to ensure consistency
+    saveLastProcessedVideo({
+      url: uploadedVideoInfo.url || videoInfo.url, // Fallback to videoInfo.url if upload returned null
+      title: uploadedVideoInfo.title,
+      time: uploadedVideoInfo.time,
+    });
   } catch (err) {
     console.error("[TikTok-Auto] Upload failed:", err);
     // Don't mark as processed if upload failed, so we can retry

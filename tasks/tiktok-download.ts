@@ -115,7 +115,13 @@ export async function runTikTokDownloadOnce(): Promise<void> {
 
         const urlMarker = "[RESULT] latest_video_url=";
         if (line.startsWith(urlMarker)) {
-          latestUrl = line.slice(urlMarker.length).trim();
+          const urlValue = line.slice(urlMarker.length).trim();
+          // Handle Python's None output - treat as null
+          if (urlValue === "None" || urlValue.startsWith("None ")) {
+            latestUrl = null;
+          } else {
+            latestUrl = urlValue;
+          }
         }
 
         const titleMarker = "[RESULT] latest_video_title=";
@@ -139,34 +145,16 @@ export async function runTikTokDownloadOnce(): Promise<void> {
       if (code === 0) {
         console.log("[TikTok] Downloader finished successfully.");
 
-        if (!latestUrl) {
+        // Enhanced validation: check for None or invalid URLs
+        if (!latestUrl || 
+            latestUrl === "None" || 
+            latestUrl.startsWith("None ") ||
+            !latestUrl.startsWith("http")) {
           console.warn(
-            "[TikTok] No latest_video_url found in Python output. Nothing to send to Downie."
+            `[TikTok] No valid TikTok URL found (got: ${latestUrl || "null"}). Nothing to send to Downie.`
           );
           resolve();
           return;
-        }
-
-        // Save the TikTok URL, title, and time to files so upload-tiktok can read them later
-        const logsDir = path.join(__dirname, "..", "logs");
-        if (!fs.existsSync(logsDir)) {
-          fs.mkdirSync(logsDir, { recursive: true });
-        }
-
-        const urlFilePath = path.join(logsDir, "last_tiktok_url.txt");
-        fs.writeFileSync(urlFilePath, latestUrl, "utf8");
-        console.log(`[TikTok] Saved latest video URL to: ${urlFilePath}`);
-
-        if (latestTitle) {
-          const titleFilePath = path.join(logsDir, "last_tiktok_title.txt");
-          fs.writeFileSync(titleFilePath, latestTitle, "utf8");
-          console.log(`[TikTok] Saved latest video title to: ${titleFilePath}`);
-        }
-
-        if (latestTime) {
-          const timeFilePath = path.join(logsDir, "last_tiktok_time.txt");
-          fs.writeFileSync(timeFilePath, latestTime, "utf8");
-          console.log(`[TikTok] Saved latest video time to: ${timeFilePath}`);
         }
 
         openWithDownie(latestUrl)

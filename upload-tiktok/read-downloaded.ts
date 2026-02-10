@@ -61,25 +61,44 @@ export function getLatestDownloadedVideo(): DownloadedVideo | null {
 }
 
 const LOGS_DIR = path.join(__dirname, "..", "logs");
+const LAST_PROCESSED_VIDEO_FILE = path.join(LOGS_DIR, "last_processed_tiktok_video.json");
+
+interface ProcessedVideoInfo {
+  url: string;
+  title: string | null;
+  time: string | null;
+}
+
+/**
+ * Read the last processed TikTok video info from JSON file.
+ */
+function getLastProcessedVideoInfo(): ProcessedVideoInfo | null {
+  try {
+    if (fs.existsSync(LAST_PROCESSED_VIDEO_FILE)) {
+      const content = fs.readFileSync(LAST_PROCESSED_VIDEO_FILE, "utf8").trim();
+      if (content) {
+        const videoInfo = JSON.parse(content) as ProcessedVideoInfo;
+        if (videoInfo.url && videoInfo.url.startsWith("http")) {
+          return videoInfo;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[upload-tiktok] Failed to read from JSON file: ${err}`
+    );
+  }
+
+  return null;
+}
 
 /**
  * Read the last TikTok video URL saved by tiktok-download.ts.
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokUrl(): string | null {
-  const urlFilePath = path.join(LOGS_DIR, "last_tiktok_url.txt");
-  try {
-    if (fs.existsSync(urlFilePath)) {
-      const url = fs.readFileSync(urlFilePath, "utf8").trim();
-      return url || null;
-    }
-  } catch (err) {
-    console.warn(
-      `[upload-tiktok] Failed to read last TikTok URL from ${urlFilePath}:`,
-      err
-    );
-  }
-  return null;
+  const videoInfo = getLastProcessedVideoInfo();
+  return videoInfo?.url || null;
 }
 
 /**
@@ -87,19 +106,8 @@ export function getLastTikTokUrl(): string | null {
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokTitle(): string | null {
-  const titleFilePath = path.join(LOGS_DIR, "last_tiktok_title.txt");
-  try {
-    if (fs.existsSync(titleFilePath)) {
-      const title = fs.readFileSync(titleFilePath, "utf8").trim();
-      return title || null;
-    }
-  } catch (err) {
-    console.warn(
-      `[upload-tiktok] Failed to read last TikTok title from ${titleFilePath}:`,
-      err
-    );
-  }
-  return null;
+  const videoInfo = getLastProcessedVideoInfo();
+  return videoInfo?.title || null;
 }
 
 /**
@@ -107,19 +115,8 @@ export function getLastTikTokTitle(): string | null {
  * Returns null if the file doesn't exist or can't be read.
  */
 export function getLastTikTokTime(): string | null {
-  const timeFilePath = path.join(LOGS_DIR, "last_tiktok_time.txt");
-  try {
-    if (fs.existsSync(timeFilePath)) {
-      const time = fs.readFileSync(timeFilePath, "utf8").trim();
-      return time || null;
-    }
-  } catch (err) {
-    console.warn(
-      `[upload-tiktok] Failed to read last TikTok time from ${timeFilePath}:`,
-      err
-    );
-  }
-  return null;
+  const videoInfo = getLastProcessedVideoInfo();
+  return videoInfo?.time || null;
 }
 
 

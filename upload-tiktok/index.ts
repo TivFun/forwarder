@@ -1,12 +1,7 @@
 import "dotenv/config";
 import { spawn } from "child_process";
 import path from "path";
-import {
-  getLatestDownloadedVideo,
-  getLastTikTokUrl,
-  getLastTikTokTitle,
-  getLastTikTokTime,
-} from "./read-downloaded";
+import { getLatestDownloadedVideo } from "./read-downloaded";
 import { BilibiliUploadMeta } from "./types";
 import { getPythonInterpreter } from "../utils/python-env";
 
@@ -17,33 +12,40 @@ import { getPythonInterpreter } from "../utils/python-env";
  *   TIKTOK_DOWNLOADED_DIR=/path/to/Downie/output \
  *   SESSDATA=... CSRF=... BUVID3=... \
  *   bun run upload-tiktok-once
+ * 
+ * @param videoInfo Required video info (url, title, time). 
+ *   - url must be a valid HTTP URL (not null)
+ *   - title and time can be null, but url is mandatory
+ *   - If videoInfo is incomplete, will throw an error
+ * @returns The video info that was actually used for upload
  */
-export async function uploadTikTokOnce(): Promise<void> {
+export async function uploadTikTokOnce(
+  videoInfo: { url: string | null; title: string | null; time: string | null }
+): Promise<{ url: string | null; title: string | null; time: string | null }> {
   const latest = getLatestDownloadedVideo();
 
   if (!latest) {
-    console.warn(
-      "[upload-tiktok] No downloaded video found in TIKTOK_DOWNLOADED_DIR."
-    );
-    return;
+    throw new Error("[upload-tiktok] No downloaded video found in TIKTOK_DOWNLOADED_DIR.");
   }
 
   console.log(
     `[upload-tiktok] Found latest downloaded video: ${latest.filePath} (mtime=${latest.mtime.toISOString()})`
   );
 
-  // Try to get the TikTok source URL, title, and time from saved files
-  const sourceUrl = getLastTikTokUrl() || process.env.LAST_TIKTOK_URL;
-  const originalTitle = getLastTikTokTitle();
-  const videoTime = getLastTikTokTime();
-
-  if (sourceUrl) {
-    console.log(`[upload-tiktok] Using TikTok source URL: ${sourceUrl}`);
-  } else {
-    console.warn(
-      "[upload-tiktok] No TikTok source URL found. The video will be uploaded without source attribution."
+  // Validate videoInfo - url is mandatory and must be a valid HTTP URL
+  if (!videoInfo || !videoInfo.url || !videoInfo.url.startsWith("http")) {
+    throw new Error(
+      `[upload-tiktok] Invalid videoInfo: url must be a valid HTTP URL. Got: ${videoInfo?.url || "null"}`
     );
   }
+
+  // Use the provided videoInfo strictly - no fallback
+  const sourceUrl = videoInfo.url;
+  const originalTitle = videoInfo.title;
+  const videoTime = videoInfo.time;
+  
+  console.log(`[upload-tiktok] Using provided video info: URL=${sourceUrl}, Title=${originalTitle || "null"}, Time=${videoTime || "null"}`);
+  console.log(`[upload-tiktok] Using TikTok source URL: ${sourceUrl}`);
 
   // Format title as "原标题 - YYYY-MM-DD TikTok"
   let formattedTitle: string;
@@ -107,7 +109,7 @@ export async function uploadTikTokOnce(): Promise<void> {
     `[upload-tiktok] Calling Python uploader: ${pythonScript}`
   );
 
-  await new Promise<void>((resolve, reject) => {
+  return await new Promise<{ url: string | null; title: string | null; time: string | null }>((resolve, reject) => {
     const args = [
       pythonScript,
       "--video-path",
@@ -172,7 +174,8 @@ export async function uploadTikTokOnce(): Promise<void> {
       if (code === 0) {
         if (stdout.trim() === "SUCCESS") {
           console.log("[upload-tiktok] Upload completed successfully");
-          resolve();
+          // Return the video info that was actually used for upload
+          resolve({ url: sourceUrl, title: originalTitle, time: videoTime });
         } else {
           reject(
             new Error(
@@ -192,10 +195,10 @@ export async function uploadTikTokOnce(): Promise<void> {
 }
 
 if (require.main === module) {
-  uploadTikTokOnce().catch((err) => {
-    console.error("[upload-tiktok] Unhandled error:", err);
-    process.exit(1);
-  });
+  console.error("[upload-tiktok] This script cannot be run directly.");
+  console.error("[upload-tiktok] It must be called from tiktok-auto.ts with videoInfo parameter.");
+  console.error("[upload-tiktok] Use: bun run tiktok-auto-once");
+  process.exit(1);
 }
 
 
