@@ -42,7 +42,8 @@ async def get_latest_video_info(
             ms_tokens=[ms_token],
             num_sessions=1,
             sleep_after=3,
-            browser=os.getenv("TIKTOK_BROWSER", "chromium"),
+            headless=False,
+            browser=os.getenv("TIKTOK_BROWSER", "firefox"),
         )
 
         user = api.user(username=username)
