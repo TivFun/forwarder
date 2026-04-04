@@ -3,7 +3,7 @@
 这是一个**自动搬运内容**的小工具：
 
 - **Twitter → Bilibili**：抓取指定账号的推文 →（可翻译）→ 发到 B站
-- **TikTok → 下载 → Bilibili 投稿**：检查指定 TikTok 账号是否更新 → 用 Downie 下载 → 自动投稿到 B站（并可在投稿成功后删除本地视频节省空间）
+- **TikTok → 下载 → Bilibili 投稿**：检查指定 TikTok 账号是否更新 → 用 yt-dlp 下载 → 自动投稿到 B站（投稿成功后自动删除本地视频节省空间）
 
 照着做即可。
 
@@ -36,41 +36,41 @@ bun add -g pm2
 pm2 -v
 ```
 
-### 3) TikTok 下载：安装 Downie 4（可选但推荐）
+### 3) TikTok 下载/上传：安装 ffmpeg + Python 虚拟环境
 
-假设你已经在用 Downie 4 了。本项目会用系统命令唤起 Downie：
+TikTok 视频的下载通过 **yt-dlp** 完成（命令行工具，装在 Python 虚拟环境里），上传到 B 站通过 **Python** 脚本完成。
 
-- `open -a "Downie 4" "<tiktok_url>"`
+#### 安装 ffmpeg（封面提取 + 视频合并需要）
 
-请在 Downie 设置里开启尽可能自动的下载方式（否则可能需要你手动选择清晰度）。
+```bash
+brew install ffmpeg
+```
 
-### 4) TikTok 嗅探/上传：需要 Python 虚拟环境
-
-TikTok 嗅探/投稿这部分是通过 **Python** 跑的，所以需要一个 Python 虚拟环境（venv）来安装依赖。
+#### 创建 Python 虚拟环境
 
 在项目根目录执行：
 
 ```bash
 # 1) 创建虚拟环境目录
-python3 -m venv your-venv
+python3 -m venv tiktok-download
 
 # 2) 激活虚拟环境
-source your-venv/bin/activate
+source tiktok-download/bin/activate
 
-# 3) 安装依赖
-python -m pip install TikTokApi playwright bilibili-api-python requests pillow
+# 3) 安装依赖（yt-dlp 负责下载，bilibili-api-python 负责投稿）
+pip install yt-dlp bilibili-api-python pillow
 
-# 4) 安装 Playwright 浏览器组件
-python -m playwright install
+# 4) 退出虚拟环境
+deactivate
 ```
 
 创建完成后，在 `.env` 里写：
 
 ```env
-PYTHON_VENV_PATH=your-venv
+PYTHON_VENV_PATH=tiktok-download
 ```
 
-> 说明：PM2 后台运行时不需要你“激活”虚拟环境；本项目会直接使用 `PYTHON_VENV_PATH` 指向的 `your-venv/bin/python3` 来运行 Python 脚本。
+> 说明：PM2 后台运行时不需要你”激活”虚拟环境；本项目会自动使用 `PYTHON_VENV_PATH` 指向的虚拟环境里的 `python3` 和 `yt-dlp`。
 
 ---
 
@@ -127,32 +127,26 @@ TWITTER_RUN_ON_STARTUP=true
 # 开关：true 启用 / false 禁用
 ENABLE_TIKTOK_AUTO=true
 
-# TikTok 用户名
+# TikTok 用户名（@后面那串，不带@）
 TIKTOK_USERNAME=xxx
 
-# TikTok msToken（cookie）
-MS_TOKEN=xxx
+# 下载目录（绝对路径，yt-dlp 会把视频下到这里）
+TIKTOK_DOWNLOADED_DIR=/Users/你的用户名/path/to/tiktok-videos
 
-# Downie 下载目录（必须是绝对路径）
-TIKTOK_DOWNLOADED_DIR=/Users/你的用户名/.../tiktok-videos
-
-# Downie 应用名（默认 Downie 4）
-DOWNIE_APP_NAME=Downie 4
-
-# Python venv（你项目里就是 tiktok-download）
+# Python 虚拟环境目录名（相对项目根目录）
 PYTHON_VENV_PATH=tiktok-download
 
-# B 站投稿凭证（同上，投稿也需要）
+# B 站投稿凭证（同上）
 SESSDATA=xxx
 CSRF=xxx
 
-# 投稿分区（示例 85）
+# 投稿分区 ID（示例：85 = 短片·手书·配音）
 BILIBILI_TID=85
 
-# 是否让 B 站用视频第一帧做封面（true=不自己截封面）
+# 封面：true = 让 B 站自动用视频第一帧，false = 用 ffmpeg 截取并裁成 16:9
 BILIBILI_USE_VIDEO_COVER=true
 
-# 合集 ID（可选）
+# 合集 ID（可选，不填就不加入合集）
 BILIBILI_COLLECTION_ID=1234567
 ```
 
@@ -246,13 +240,10 @@ pm2 delete twitter-forwarder
 # 推文转发跑一次
 bun run integral-once
 
-# TikTok 下载跑一次（会唤起 Downie）
+# TikTok 只下载不投稿（视频保存到 TIKTOK_DOWNLOADED_DIR）
 bun run tiktok-download-once
 
-# TikTok 投稿跑一次（从下载目录取最新视频投稿）
-bun run upload-tiktok-once
-
-# TikTok 全流程跑一次（嗅探→下载→投稿→成功后删本地视频）
+# TikTok 全流程跑一次（检查更新→下载→投稿→删本地视频）
 bun run tiktok-auto-once
 ```
 
